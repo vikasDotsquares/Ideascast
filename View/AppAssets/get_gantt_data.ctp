@@ -1,9 +1,12 @@
 <?php
 if( isset($resultData) && !empty($resultData) ){
 	$allTaskDetail = array();
+
 	$allTaskDetail1 = array();
 	$allTaskDetail2 = array();
 	$allTaskDetail3 = array();
+	$allTaskDetail4 = array();
+
 	pr($resultData);
 	foreach( $resultData as $wsp_list ){
 		
