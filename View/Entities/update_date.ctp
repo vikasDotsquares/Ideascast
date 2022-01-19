@@ -1,0 +1,1 @@
+<?php echo date('d M, Y g:iA', strtotime($data['Element']['modified'])); ?>
