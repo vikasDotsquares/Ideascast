@@ -1,0 +1,701 @@
+entities
+	public function save_quick_share($project_id = null) {
+
+		if ($this->request->isAjax()) {
+
+			$this->layout = 'ajax';
+			$response = [
+				'success' => false,
+				'content' => null,
+				'socket_newuser' => null,
+			];
+			if ($this->request->is('post') || $this->request->is('put')) {
+				$post = $this->request->data;
+				$element_workspace = element_workspace($post['Share']['element_id']);
+				$userProjectId = project_upid($project_id);
+				$userOwnerId = project_owner($project_id);
+
+				if (isset($post['ElementPermission']['id']) && !empty($post['ElementPermission']['id'])) {
+					// update only element permissions table
+
+					if ((!isset($post['ElementPermission']['permit_read']) || empty($post['ElementPermission']['permit_read'])) &&
+						(!isset($post['ElementPermission']['permit_edit']) || !empty($post['ElementPermission']['permit_edit'])) &&
+						(!isset($post['ElementPermission']['permit_delete']) || !empty($post['ElementPermission']['permit_delete'])) &&
+						(!isset($post['ElementPermission']['permit_copy']) || !empty($post['ElementPermission']['permit_copy'])) &&
+						(!isset($post['ElementPermission']['permit_move']) || !empty($post['ElementPermission']['permit_move']))) {
+						if ($this->ElementPermission->delete($post['ElementPermission']['id'])) {
+							if( PROCEDURE_MODE == 1 ) {
+								$delCond = array('ShareElement.element_permission_id'=>$post['ElementPermission']['id']);
+								$this->ShareElement->deleteAll($delCond);
+							}
+							$response['success'] = true;
+						}
+					} else {
+
+
+						$element_permit = [
+							'id' => $post['ElementPermission']['id'],
+							'user_id' => $post['Share']['user_id'],
+							'element_id' => $post['Share']['element_id'],
+							'workspace_id' => $element_workspace,
+							'project_id' => $project_id,
+							'permit_read' => (isset($post['ElementPermission']['permit_read']) && !empty($post['ElementPermission']['permit_read'])) ? 1 : 0,
+							'permit_edit' => (isset($post['ElementPermission']['permit_edit']) && !empty($post['ElementPermission']['permit_edit'])) ? 1 : 0,
+							'permit_delete' => (isset($post['ElementPermission']['permit_delete']) && !empty($post['ElementPermission']['permit_delete'])) ? 1 : 0,
+							'permit_copy' => (isset($post['ElementPermission']['permit_copy']) && !empty($post['ElementPermission']['permit_copy'])) ? 1 : 0,
+							'permit_move' => (isset($post['ElementPermission']['permit_move']) && !empty($post['ElementPermission']['permit_move'])) ? 1 : 0,
+						];
+						// pr($element_permit, 1);
+						if ($this->ElementPermission->save($element_permit)) {
+							$response['success'] = true;
+
+							/************** socket messages **************/
+							if (SOCKET_MESSAGES) {
+								$heading = 'Sharer';
+								$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+								if (isset($p_permission) && !empty($p_permission)) {
+									if ($p_permission['ProjectPermission']['project_level'] > 0) {
+										$heading = 'Owner';
+									}
+								}
+
+								$send_notification = false;
+								if (web_notify_setting($post['Share']['user_id'], 'element', 'task_sharing')) {
+									$send_notification = true;
+								}
+								$userDetail = get_user_data($this->user_id);
+								$content = [
+									'socket' => [
+										'notification' => [
+											'type' => 'task',
+											'created_id' => $this->user_id,
+											'project_id' => $project_id,
+											'task_id' => $post['Share']['element_id'],
+											'creator_name' => $userDetail['UserDetail']['full_name'],
+											'subject' => 'Task sharing updated',
+											'heading' => 'Permission: ' . $heading,
+											'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')).'<br />Workspace: ' . strip_tags(getFieldDetail('Workspace', $element_workspace, 'title')).'<br />Task: ' . strip_tags(getFieldDetail('Element', $post['Share']['element_id'], 'title')),
+											'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+										],
+									],
+								];
+
+								if ($send_notification) {
+									$content['socket']['received_users'] = [$post['Share']['user_id']];
+								}
+
+								// $response['content'] = $content;
+								$request = array(
+									'header' => array(
+										'Content-Type' => 'application/json',
+									),
+								);
+								// pr($content);
+								$content = json_encode($content['socket']);
+								$HttpSocket = new HttpSocket([
+									'ssl_verify_host' => false,
+									'ssl_verify_peer_name' => false,
+									'ssl_verify_peer' => false,
+								]);
+								$results = $HttpSocket->post(CHATURL . '/serveremit', $content, $request);
+							}
+							/************** socket messages **************/
+							$this->Common->task_share_email($post['Share']['user_id'], $project_id, $element_workspace, $post['Share']['element_id'], true);
+						}
+					}
+				} else {
+					// create new entries for project, workspace and element permissions tables
+					$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+
+					$parent_id = 0;
+
+					if ($userOwnerId != $this->user_id) {
+						$parent = $this->ProjectPermission->find('first', [
+							'conditions' => ['ProjectPermission.user_project_id' => $userProjectId, 'ProjectPermission.owner_id' => $userOwnerId, 'ProjectPermission.user_id' => $this->user_id],
+
+						]);
+						$parent_id = (isset($parent) && !empty($parent)) ? $parent['ProjectPermission']['id'] : 0;
+
+					}
+
+					if (!isset($p_permission) || empty($p_permission)) {
+						$project_permit = [
+							'user_id' => $post['Share']['user_id'],
+							'share_by_id' => $this->user_id,
+							'owner_id' => $userOwnerId,
+							'user_project_id' => $userProjectId,
+							'parent_id' => $parent_id,
+							'share_permission' => 0,
+							'project_level' => 0,
+							'permit_read' => 1,
+							'permit_add' => 0,
+							'permit_edit' => 0,
+							'permit_delete' => 0,
+						];
+
+						if ($this->ProjectPermission->save($project_permit)) {
+							$response['success'] = true;
+						}
+					}
+
+					$wsp_permissions = $this->Common->wsp_permission_details(workspace_pwid($project_id, $element_workspace), $project_id, $post['Share']['user_id']);
+					if (!isset($wsp_permissions) || empty($wsp_permissions)) {
+						$workspace_permit = [
+							'user_id' => $post['Share']['user_id'],
+							'user_project_id' => $userProjectId,
+							'project_workspace_id' => workspace_pwid($project_id, $element_workspace),
+							'permit_read' => 1,
+							'permit_add' => 0,
+							'permit_edit' => 0,
+							'permit_delete' => 0,
+						];
+						if ($this->WorkspacePermission->save($workspace_permit)) {
+							$response['success'] = true;
+						}
+					}
+
+					$element_permit = [
+						'user_id' => $post['Share']['user_id'],
+						'element_id' => $post['Share']['element_id'],
+						'workspace_id' => $element_workspace,
+						'project_id' => $project_id,
+						'permit_read' => (isset($post['ElementPermission']['permit_read']) && !empty($post['ElementPermission']['permit_read'])) ? 1 : 0,
+						'permit_edit' => (isset($post['ElementPermission']['permit_edit']) && !empty($post['ElementPermission']['permit_edit'])) ? 1 : 0,
+						'permit_delete' => (isset($post['ElementPermission']['permit_delete']) && !empty($post['ElementPermission']['permit_delete'])) ? 1 : 0,
+						'permit_copy' => (isset($post['ElementPermission']['permit_copy']) && !empty($post['ElementPermission']['permit_copy'])) ? 1 : 0,
+						'permit_move' => (isset($post['ElementPermission']['permit_move']) && !empty($post['ElementPermission']['permit_move'])) ? 1 : 0,
+					];
+					if ($this->ElementPermission->save($element_permit)) {
+						$eshare_insert_id = $this->ElementPermission->inserted_ids;
+						$response['success'] = true;
+
+						// create new entries for project, workspace and element permissions tables
+						if( PROCEDURE_MODE == 1 ) {
+							/*  Start Stored Procedure ================================== */
+
+							 if( !empty($eshare_insert_id) ){
+
+								foreach($eshare_insert_id as $epids){
+
+									$elePermission = $this->ElementPermission->findById($epids);
+
+									$epProject_id = $elePermission['ElementPermission']['project_id'];
+									$epWorkspace_id = $elePermission['ElementPermission']['workspace_id'];
+									$epElement_id = $elePermission['ElementPermission']['element_id'];
+									$epUser_id = $elePermission['ElementPermission']['user_id'];
+									$eleArea_id = element_area($elePermission['ElementPermission']['element_id']);
+
+									if( $this->objView->loadHelper('ViewModel')->projectPermitType($epProject_id, $epUser_id) ){
+										$user_level = 1;
+									} else {
+										$user_level = 0;
+									}
+
+								}
+							}
+							/* End Stored Procedure =========================== */
+						}
+
+
+						if (isset($p_permission) && !empty($p_permission)) {
+							/************* socket messages *************/
+							if (SOCKET_MESSAGES) {
+								$heading = 'Sharer';
+								$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+								if ($p_permission['ProjectPermission']['project_level'] > 0) {
+									$heading = 'Owner';
+								}
+
+								$send_notification = false;
+								if (web_notify_setting($post['Share']['user_id'], 'element', 'task_sharing')) {
+									$send_notification = true;
+								}
+								$userDetail = get_user_data($this->user_id);
+								$content = [
+									'socket' => [
+										'notification' => [
+											'type' => 'task',
+											'created_id' => $this->user_id,
+											'project_id' => $project_id,
+											'task_id' => $post['Share']['element_id'],
+											'creator_name' => $userDetail['UserDetail']['full_name'],
+											'subject' => 'Task sharing',
+											'heading' => 'Permission: Sharer',
+											'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')).'<br />Workspace: ' . strip_tags(getFieldDetail('Workspace', $element_workspace, 'title')).'<br />Task: ' . strip_tags(getFieldDetail('Element', $post['Share']['element_id'], 'title')),
+											'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+										],
+										// 'received_users' => [$post['Share']['user_id']],
+									],
+								];
+
+								if ($send_notification) {
+									$content['socket']['received_users'] = [$post['Share']['user_id']];
+								}
+
+								// $response['content'] = $content;
+								$request = array(
+									'header' => array(
+										'Content-Type' => 'application/json',
+									),
+								);
+								// pr($content);
+								$content = json_encode($content['socket']);
+								$HttpSocket = new HttpSocket([
+									'ssl_verify_host' => false,
+									'ssl_verify_peer_name' => false,
+									'ssl_verify_peer' => false,
+								]);
+								$results = $HttpSocket->post(CHATURL . '/serveremit', $content, $request);
+							}
+							/************* socket messages **************/
+							$this->Common->task_share_email($post['Share']['user_id'], $project_id, $element_workspace, $post['Share']['element_id']);
+						} else {
+							$this->Common->task_share_email($post['Share']['user_id'], $project_id, $element_workspace, $post['Share']['element_id']);
+							$this->Common->getProjectAllUser($project_id, $post['Share']['user_id']);
+							/************* socket messages *************/
+							if (SOCKET_MESSAGES) {
+								$heading = 'Sharer';
+								$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+								if ($p_permission['ProjectPermission']['project_level'] > 0) {
+									$heading = 'Owner';
+								}
+
+								$send_notification = false;
+								if (web_notify_setting($post['Share']['user_id'], 'element', 'task_sharing')) {
+									$send_notification = true;
+								}
+								$userDetail = get_user_data($this->user_id);
+								$content = [
+									'socket' => [
+										'notification' => [
+											'type' => 'task',
+											'created_id' => $this->user_id,
+											'project_id' => $project_id,
+											'task_id' => $post['Share']['element_id'],
+											'creator_name' => $userDetail['UserDetail']['full_name'],
+											'subject' => 'Task sharing',
+											'heading' => 'Permission: Sharer',
+											'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')).'<br />Workspace: ' . strip_tags(getFieldDetail('Workspace', $element_workspace, 'title')).'<br />Task: ' . strip_tags(getFieldDetail('Element', $post['Share']['element_id'], 'title')),
+											'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+										]
+									]
+								];
+
+								if ($send_notification) {
+									$content['socket']['received_users'] = [$post['Share']['user_id']];
+								}
+
+								$request = array(
+									'header' => array(
+										'Content-Type' => 'application/json',
+									),
+								);
+								// pr($content);
+								$content = json_encode($content['socket']);
+								$HttpSocket = new HttpSocket([
+									'ssl_verify_host' => false,
+									'ssl_verify_peer_name' => false,
+									'ssl_verify_peer' => false,
+								]);
+								$results = $HttpSocket->post(CHATURL . '/serveremit', $content, $request);
+							}
+							/************* socket messages **************/
+							/************** socket messages (new project member) **************/
+							if (SOCKET_MESSAGES) {
+								$current_user_id = $this->user_id;
+								App::import('Controller', 'Risks');
+								$Risks = new RisksController;
+								$project_all_users = $Risks->get_project_users($project_id, $current_user_id);
+								if (isset($project_all_users) && !empty($project_all_users)) {
+									if (($key = array_search($current_user_id, $project_all_users)) !== false) {
+										unset($project_all_users[$key]);
+									}
+								}
+								if (isset($project_all_users) && !empty($project_all_users)) {
+									if (($key = array_search($post['Share']['user_id'], $project_all_users)) !== false) {
+										unset($project_all_users[$key]);
+									}
+								}
+								$open_users = null;
+								if (isset($project_all_users) && !empty($project_all_users)) {
+									foreach ($project_all_users as $key1 => $value1) {
+										if (web_notify_setting($value1, 'project', 'project_new_member')) {
+											$open_users[] = $value1;
+										}
+									}
+								}
+								$heading = 'Sharer';
+								$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+								if (isset($p_permission) && !empty($p_permission)) {
+									if ($p_permission['ProjectPermission']['project_level'] > 0) {
+										$heading = 'Owner';
+									}
+								}
+								$userDetail = get_user_data($current_user_id);
+								$sharedUserDetail = get_user_data($post['Share']['user_id']);
+								$content = [
+									'socket' => [
+										'notification' => [
+											'created_id' => $current_user_id,
+											'project_id' => $project_id,
+											'creator_name' => $userDetail['UserDetail']['full_name'],
+											'subject' => 'New project member',
+											'heading' => 'Member: ' . $sharedUserDetail['UserDetail']['full_name'] . '<br />Permission: ' . $heading,
+											'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')),
+											'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+										],
+										// 'received_users' => [$post['Share']['user_id']],
+									],
+								];
+								if (is_array($open_users)) {
+									$content['socket']['received_users'] = array_values($open_users);
+								}
+
+								$response['socket_newuser'] = $content;
+							}
+							/************** socket messages (new project member) **************/
+						}
+					}
+
+				}
+			}
+			echo json_encode($response);
+			exit;
+		}
+	}
+
+	----------------------------
+
+workspace
+	public function save_quick_share($project_id = null) {
+
+		if ($this->request->isAjax()) {
+
+			$this->layout = 'ajax';
+			$response = [
+				'success' => false,
+				'content' => null,
+				'socket_newuser' => null,
+			];
+			if ($this->request->is('post') || $this->request->is('put')) {
+				$post = $this->request->data;
+
+				$userProjectId = project_upid($project_id);
+				$userOwnerId = project_owner($project_id);
+				$mail_sent = false;
+				// pr($post['Share'] , 1);
+				if (isset($post['Share']['wid']) && !empty($post['Share']['wid'])) {
+
+					$multi_wsp = $post['Share']['wid'];
+
+
+					foreach ($multi_wsp as $key => $val) {
+
+						$wsp_permissions = $this->Common->wsp_permission_details(workspace_pwid($project_id, $val), $project_id, $post['Share']['user_id']);
+						// if wsp permission already exists.
+						if (isset($wsp_permissions) && !empty($wsp_permissions)) {
+							$wsp_permit_id = Set::classicExtract($wsp_permissions, '0.WorkspacePermission.id');
+
+							$workspace_permit = [
+								'id' => $wsp_permit_id,
+								'user_id' => $post['Share']['user_id'],
+								'user_project_id' => $userProjectId,
+								'project_workspace_id' => workspace_pwid($project_id, $val),
+								'permit_read' => (isset($post['WorkspacePermission']['permit_read']) && !empty($post['WorkspacePermission']['permit_read'])) ? 1 : 0,
+								'permit_edit' => (isset($post['WorkspacePermission']['permit_edit']) && !empty($post['WorkspacePermission']['permit_edit'])) ? 1 : 0,
+								'permit_delete' => (isset($post['WorkspacePermission']['permit_delete']) && !empty($post['WorkspacePermission']['permit_delete'])) ? 1 : 0,
+								'permit_add' => (isset($post['WorkspacePermission']['permit_add']) && !empty($post['WorkspacePermission']['permit_add'])) ? 1 : 0,
+							];
+
+							if ($this->WorkspacePermission->save($workspace_permit)) {
+								$response['success'] = true;
+
+									/************** socket messages **************/
+									if (SOCKET_MESSAGES) {
+										// e('first -- '.$val);
+										$heading = 'Sharer';
+										$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+										if (isset($p_permission) && !empty($p_permission)) {
+											if ($p_permission['ProjectPermission']['project_level'] > 0) {
+												$heading = 'Owner';
+											}
+										}
+										$send_notification = false;
+										if (web_notify_setting($post['Share']['user_id'], 'workspace', 'workspace_sharing')) {
+											$send_notification = true;
+										}
+										$userDetail = get_user_data($this->user_id);
+										$content = null;
+										$content = [
+											'socket' => [
+												'notification' => [
+													'type' => 'workspace',
+													'created_id' => $this->user_id,
+													'project_id' => $project_id,
+													'workspace_id' => $val,
+													'creator_name' => $userDetail['UserDetail']['full_name'],
+													'subject' => 'Workspace sharing updated',
+													'heading' => 'Permission: ' . $heading,
+													'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')).'<br />Workspace: ' . strip_tags(getFieldDetail('Workspace', $val, 'title')),
+													'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+												],
+											],
+										];
+										if ($send_notification) {
+											$content['socket']['received_users'] = [$post['Share']['user_id']];
+										}
+
+										// $response['content'] = $content;
+										$request = array(
+											'header' => array(
+												'Content-Type' => 'application/json',
+											),
+										);
+										// pr($content);
+										$content = json_encode($content['socket']);
+										$HttpSocket = new HttpSocket([
+											'ssl_verify_host' => false,
+											'ssl_verify_peer_name' => false,
+											'ssl_verify_peer' => false,
+										]);
+										$results = $HttpSocket->post(CHATURL . '/serveremit', $content, $request);
+										// pr($results);
+
+									}
+									/************** socket messages **************/
+								// if ($mail_sent == false) {
+									$this->Common->workspace_share_email($post['Share']['user_id'], $project_id, $val);
+									// $mail_sent = true;
+								// }
+							}
+						} else {
+							$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+
+							$parent_id = 0;
+
+							if ($userOwnerId != $this->user_id) {
+								$parent = $this->ProjectPermission->find('first', [
+									'conditions' => ['ProjectPermission.user_project_id' => $userProjectId, 'ProjectPermission.owner_id' => $userOwnerId, 'ProjectPermission.user_id' => $this->user_id],
+
+								]);
+								$parent_id = (isset($parent) && !empty($parent)) ? $parent['ProjectPermission']['id'] : 0;
+
+							}
+
+							if (!isset($p_permission) || empty($p_permission)) {
+								$project_permit = [
+									'user_id' => $post['Share']['user_id'],
+									'share_by_id' => $this->user_id,
+									'owner_id' => $userOwnerId,
+									'user_project_id' => $userProjectId,
+									'parent_id' => $parent_id,
+									'share_permission' => 0,
+									'project_level' => 0,
+									'permit_read' => 1,
+									'permit_add' => 0,
+									'permit_edit' => 0,
+									'permit_delete' => 0,
+								];
+
+								if ($this->ProjectPermission->save($project_permit)) {
+									$response['success'] = true;
+									// Add user project connection to mongo db
+									$this->Users->userConnections($post['Share']['user_id'], $project_id);
+								}
+							}
+
+							$workspace_permit = [
+								'id' => '',
+								'user_id' => $post['Share']['user_id'],
+								'user_project_id' => $userProjectId,
+								'project_workspace_id' => workspace_pwid($project_id, $val),
+								'permit_read' => (isset($post['WorkspacePermission']['permit_read']) && !empty($post['WorkspacePermission']['permit_read'])) ? 1 : 0,
+								'permit_edit' => (isset($post['WorkspacePermission']['permit_edit']) && !empty($post['WorkspacePermission']['permit_edit'])) ? 1 : 0,
+								'permit_delete' => (isset($post['WorkspacePermission']['permit_delete']) && !empty($post['WorkspacePermission']['permit_delete'])) ? 1 : 0,
+								'permit_add' => (isset($post['WorkspacePermission']['permit_add']) && !empty($post['WorkspacePermission']['permit_add'])) ? 1 : 0,
+							];
+
+							if ($this->WorkspacePermission->save($workspace_permit)) {
+								$response['success'] = true;
+								if (isset($p_permission) && !empty($p_permission)) {
+
+										/************** socket messages **************/
+										if (SOCKET_MESSAGES) {
+											// e('sec -- '.$val);
+											$heading = 'Sharer';
+											if ($p_permission['ProjectPermission']['project_level'] > 0) {
+												$heading = 'Owner';
+											}
+
+											$send_notification = false;
+											if (web_notify_setting($post['Share']['user_id'], 'workspace', 'workspace_sharing')) {
+												$send_notification = true;
+											}
+											$userDetail = get_user_data($this->user_id);
+											$content = null;
+											$content = [
+												'socket' => [
+													'notification' => [
+														'type' => 'workspace',
+														'created_id' => $this->user_id,
+														'project_id' => $project_id,
+														'workspace_id' => $val,
+														'creator_name' => $userDetail['UserDetail']['full_name'],
+														'subject' => 'Workspace sharing',
+														'heading' => 'Permission: ' . $heading,
+														'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')).'<br />Workspace: ' . strip_tags(getFieldDetail('Workspace', $val, 'title')),
+														'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+													],
+												],
+											];
+
+											if ($send_notification) {
+												$content['socket']['received_users'] = [$post['Share']['user_id']];
+											}
+
+											// $response['content'] = $content;
+											$request = array(
+												'header' => array(
+													'Content-Type' => 'application/json',
+												),
+											);
+											// pr($content);
+											$content = json_encode($content['socket']);
+											$HttpSocket = new HttpSocket([
+												'ssl_verify_host' => false,
+												'ssl_verify_peer_name' => false,
+												'ssl_verify_peer' => false,
+											]);
+											$results = $HttpSocket->post(CHATURL . '/serveremit', $content, $request);
+										}
+										/************** socket messages **************/
+										// if ($mail_sent == false) {
+										$this->Common->workspace_share_email($post['Share']['user_id'], $project_id, $val);
+										// $mail_sent = true;
+										// }
+								} else {
+
+										$this->Common->workspace_share_email($post['Share']['user_id'], $project_id, $val);
+										$this->Common->getProjectAllUser($project_id, $post['Share']['user_id']);
+										// $mail_sent = true;
+										$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+										/************** socket messages **************/
+										if (SOCKET_MESSAGES) {
+											// e('third -- '.$val);
+											$heading = 'Sharer';
+											if ($p_permission['ProjectPermission']['project_level'] > 0) {
+												$heading = 'Owner';
+											}
+
+											$send_notification = false;
+											if (web_notify_setting($post['Share']['user_id'], 'workspace', 'workspace_sharing')) {
+												$send_notification = true;
+											}
+											$userDetail = get_user_data($this->user_id);
+											$content = null;
+											$content = [
+												'socket' => [
+													'notification' => [
+														'type' => 'workspace',
+														'created_id' => $this->user_id,
+														'project_id' => $project_id,
+														'workspace_id' => $val,
+														'creator_name' => $userDetail['UserDetail']['full_name'],
+														'subject' => 'Workspace sharing',
+														'heading' => 'Permission: ' . $heading,
+														'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')).'<br />Workspace: ' . strip_tags(getFieldDetail('Workspace', $val, 'title')),
+														'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+													],
+													// 'received_users' => [$post['Share']['user_id']],
+												],
+											];
+
+											if ($send_notification) {
+												$content['socket']['received_users'] = [$post['Share']['user_id']];
+											}
+
+											// $response['content'] = $content;
+											$request = array(
+												'header' => array(
+													'Content-Type' => 'application/json',
+												),
+											);
+											// pr($content);
+											$content = json_encode($content['socket']);
+											$HttpSocket = new HttpSocket([
+												'ssl_verify_host' => false,
+												'ssl_verify_peer_name' => false,
+												'ssl_verify_peer' => false,
+											]);
+											$results = $HttpSocket->post(CHATURL . '/serveremit', $content, $request);
+										}
+										/************** socket messages **************/
+										/************** socket messages (new project member) **************/
+									if ($mail_sent == false) {
+										$mail_sent = true;
+										if (SOCKET_MESSAGES) {
+											$current_user_id = $this->user_id;
+											App::import('Controller', 'Risks');
+											$Risks = new RisksController;
+											$project_all_users = $Risks->get_project_users($project_id, $current_user_id);
+											if (isset($project_all_users) && !empty($project_all_users)) {
+												if (($key = array_search($current_user_id, $project_all_users)) !== false) {
+													unset($project_all_users[$key]);
+												}
+											}
+											if (isset($project_all_users) && !empty($project_all_users)) {
+												if (($key = array_search($post['Share']['user_id'], $project_all_users)) !== false) {
+													unset($project_all_users[$key]);
+												}
+											}
+											$open_users = null;
+											if (isset($project_all_users) && !empty($project_all_users)) {
+												foreach ($project_all_users as $key1 => $value1) {
+													if (web_notify_setting($value1, 'project', 'project_new_member')) {
+														$open_users[] = $value1;
+													}
+												}
+											}
+											$heading = 'Sharer';
+											$p_permission = $this->Common->project_permission_details($project_id, $post['Share']['user_id']);
+											if (isset($p_permission) && !empty($p_permission)) {
+												if ($p_permission['ProjectPermission']['project_level'] > 0) {
+													$heading = 'Owner';
+												}
+											}
+											$userDetail = get_user_data($current_user_id);
+											$sharedUserDetail = get_user_data($post['Share']['user_id']);
+											$content = [
+												'socket' => [
+													'notification' => [
+														'created_id' => $current_user_id,
+														'project_id' => $project_id,
+														'creator_name' => $userDetail['UserDetail']['full_name'],
+														'subject' => 'New project member',
+														'heading' => 'Member: ' . $sharedUserDetail['UserDetail']['full_name'] . '<br />Permission: ' . $heading,
+														'sub_heading' => 'Project: ' . strip_tags(getFieldDetail('Project', $project_id, 'title')),
+														'date_time' => timezoneTimeConvertor($this->user_id, date('Y-m-d g:iA'), $format = 'd M Y g:iA') . user_country($this->user_id),
+													],
+													// 'received_users' => [$post['Share']['user_id']],
+												],
+											];
+											if (is_array($open_users)) {
+												$content['socket']['received_users'] = array_values($open_users);
+											}
+
+											$response['socket_newuser'] = $content;
+										}
+										/************** socket messages (new project member) **************/
+									}
+								}
+							}
+						}
+					}
+				}
+
+			}
+			// die('end');
+			echo json_encode($response);
+			exit;
+		}
+	}

@@ -1,0 +1,221 @@
+<!-- EDIT Industry Classification -->
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+				<h4 class="modal-title">Profile Images</h4>
+			</div>
+			<?php echo $this->Form->create('User', array( 'type' => 'file', 'class' => 'form-horizontal form-bordered', 'enctype' => 'multipart/form-data', 'id' => 'RecordFormedit')); ?>
+				<div class="modal-body">
+					<?php echo $this->Form->input('User.id', array('type' => 'hidden','label' => false, 'div' => false, 'class' => 'form-control')); ?>
+					<?php echo $this->Form->input('UserDetail.id', array('type' => 'hidden')); ?>
+
+					<!-- <div class="form-group">
+					  <label for="UserClassification" class="col-lg-3 control-label">Profile Image:</label>
+					  <div class="col-lg-9">
+						<?php echo $this->Form->input('UserDetail.profile_pic', array('type' => 'file', 'label' => false, 'div' => false, 'class' => 'form-control', 'style'=>'padding:0')); ?>
+						
+						
+					  </div>
+					</div> -->
+					<?php       $menuprofile = $this->Session->read('Auth.User.UserDetail.menu_pic');
+                                                    $menuprofiles = SITEURL.USER_PIC_PATH.$menuprofile;
+						
+						if(!empty($menuprofile) && file_exists(USER_PIC_PATH.$menuprofile)){
+							$menuprofiles = SITEURL.USER_PIC_PATH.$menuprofile;
+							}else{
+							$menuprofiles = SITEURL.'img/image_placeholders/logo_placeholder.gif';
+						} 
+						
+						$profile = $this->Session->read('Auth.User.UserDetail.profile_pic');
+						$profiles = SITEURL.USER_PIC_PATH.$profile;
+						
+						if(!empty($profile) && file_exists(USER_PIC_PATH.$profile)){
+							$profiles = SITEURL.USER_PIC_PATH.$profile;
+							}else{
+							$profiles = SITEURL.'img/image_placeholders/logo_placeholder.gif';
+						} 									
+						
+						
+						$docimg = $this->Session->read('Auth.User.UserDetail.document_pic');
+						$docimgs = SITEURL.USER_PIC_PATH.$docimg;
+						
+						if(!empty($docimg) && file_exists(USER_PIC_PATH.$docimg)){
+							$docimgs = SITEURL.USER_PIC_PATH.$docimg;
+							}else{
+							$docimgs = SITEURL.'img/image_placeholders/logo_placeholder.gif';
+						} 
+						
+						
+					?>
+					<?php /*  ?>
+					 <div class="form-group">
+					<!--  <p class="text-center"><strong>Note :</strong> Please upload image with dimension ("210px width,54px height")</p>-->
+					  
+					   
+					  <label for="UserClassification" class="col-lg-3 control-label">Note:</label>
+					  <div class="col-lg-9">
+						<p class="text-center">Please upload image with dimension ("230px * 74px").</p>
+					  </div>
+					 
+					  
+					  <label for="UserClassification" class="col-lg-3 control-label">Menu Image:</label>
+					  
+					  		<?php	 $menuprofile = $this->Session->read('Auth.User.UserDetail.menu_pic');
+									 $menuprofiles = SITEURL.USER_PIC_PATH.$menuprofile;
+								
+									if(!empty($menuprofile) && file_exists(USER_PIC_PATH.$menuprofile)){
+										$menuprofiles = SITEURL.USER_PIC_PATH.$menuprofile;
+									}else{
+										$menuprofiles = SITEURL.'img/image_placeholders/logo_placeholder.gif';
+									} 
+									
+									$profile = $this->Session->read('Auth.User.UserDetail.profile_pic');
+									 $profiles = SITEURL.USER_PIC_PATH.$profile;
+								
+									if(!empty($profile) && file_exists(USER_PIC_PATH.$profile)){
+										$profiles = SITEURL.USER_PIC_PATH.$profile;
+									}else{
+										$profiles = SITEURL.'img/image_placeholders/logo_placeholder.gif';
+									} 									
+									
+									
+									$docimg = $this->Session->read('Auth.User.UserDetail.document_pic');
+									 $docimgs = SITEURL.USER_PIC_PATH.$docimg;
+								
+									if(!empty($docimg) && file_exists(USER_PIC_PATH.$docimg)){
+										$docimgs = SITEURL.USER_PIC_PATH.$docimg;
+									}else{
+										$docimgs = SITEURL.'img/image_placeholders/logo_placeholder.gif';
+									} 
+									
+									
+									?>
+					
+					  <div class="col-lg-9">
+						<?php echo $this->Form->input('UserDetail.menu_pic', array('type' => 'file', 'label' => false, 'div' => false, 'class' => 'form-control', 'style'=>'padding:0')); ?>
+						
+						  <img src="<?php echo $menuprofiles ?>" class="img-circledd " alt="Logo Image" />
+					  </div>
+					</div> <?php */ ?>
+					<label for="UserClassification" class="col-lg-3 control-label">Note:</label>
+					  <div class="col-lg-9">
+						<p class="text-center">Please upload image with dimension ("150px * 150px").</p>
+					  </div>
+					<div class="form-group">
+					  <label for="UserClassification" class="col-lg-3 control-label">Personal Image:</label>
+					  <div class="col-lg-9">
+						<?php echo $this->Form->input('UserDetail.profile_pic', array('type' => 'file', 'label' => false, 'div' => false, 'class' => 'form-control', 'style'=>'padding:0')); ?>
+						
+						 <img src="<?php echo $profiles ?>" class="img-circledd" alt="Personal Image" />
+                                                <?php if(isset($this->request->data['UserDetail']['profile_pic']) && !empty($this->request->data['UserDetail']['profile_pic'])){?>
+                                                 <input type="button" value="Remove" id="<?php echo $this->Session->read('Auth.User.UserDetail.menu_pic');?>" itemid="UserDetailProfilePic" class="img-cross btn btn-danger pull-right">
+                                                <?php } ?>
+					  </div>
+					</div>
+					
+					 <div class="form-group">
+					  <label for="UserClassification" class="col-lg-3 control-label">Document Image:</label>
+					  <div class="col-lg-9">
+						<?php echo $this->Form->input('UserDetail.document_pic', array('type' => 'file', 'label' => false, 'div' => false, 'class' => 'form-control', 'style'=>'padding:0')); ?>
+						
+						 <img src="<?php echo $docimgs ?>" class="img-circledd" alt="Logo Image" />
+                                                  <?php if(isset($this->request->data['UserDetail']['document_pic']) && !empty($this->request->data['UserDetail']['document_pic'])){?>
+                                                 <input type="button" value="Remove" id="<?php echo $this->Session->read('Auth.User.UserDetail.document_pic');?>" itemid="UserDetailDocumentPic" class="img-cross btn btn-danger pull-right">
+                                                 <?php } ?>
+					  </div>
+					</div>
+					
+				</div>
+				<div class="modal-footer clearfix">
+
+					<button type="submit" class="btn btn-success"><!--<i class="fa fa-fw fa-check"></i>--> Save</button>
+					
+					<button type="button" id="Discard" class="btn btn-danger" data-dismiss="modal"><!--<i class="fa fa-times"></i>--> Cancel</button>
+				</div>
+			</form>
+		</div><!-- /.modal-content -->
+	</div><!-- /.modal-dialog -->
+	
+<script type="text/javascript" >
+    
+// Submit Edit Form /1449745791_doc.jpg 	/1446012593_menu.png 	
+
+$(".img-cross").click(function(e){
+    var url = SITEURL+'img/image_placeholders/logo_placeholder.gif';
+    $(this).prev().attr("src",url);
+    var id = $(this).attr("itemid");
+    $("#"+id).val();
+    var $tis =  $(this);
+	
+	$.ajax({
+            url : SITEURL+"users/remove_profile_pic",
+            type: "POST",
+            data : {id : id,value : $(this).attr("id")},
+            beforeSend:function(){
+               $tis.attr("value","Loading...");
+            },
+            success:function(response){	
+                    if($.trim(response) != 'success'){
+                            //$('#popup_modal').html(response);				
+                    }else{
+                            //location.reload(); 
+                    }
+            },
+            complete:function(){
+                $tis.attr("value","Removed");
+                setTimeout(function(){
+                    $tis.remove();
+                },500)
+            },
+            error: function(jqXHR, textStatus, errorThrown){
+
+            }
+	});
+	e.preventDefault(); 
+    
+});
+$("#RecordFormedit").submit(function(e){
+	//var postData = $(this).serializeArray();
+	var postData = new FormData($(this)[0]);
+	//alert(postData);
+	var formURL = $(this).attr("action");	
+	$.ajax({
+		url : formURL,
+		type: "POST",
+		data : postData,
+		success:function(response){	
+			if($.trim(response) != 'success'){
+				$('#popup_modal').html(response);				
+			}else{
+				location.reload(); 
+			}
+		},
+		cache: false,
+        contentType: false,
+        processData: false,
+		error: function(jqXHR, textStatus, errorThrown){
+		
+		}
+	});
+	e.preventDefault(); 
+	
+});
+
+
+
+</script>
+
+<style>
+    .img-circles{position: none !important;}
+.form-horizontal p {
+    padding: 7px 0 0;
+    text-align: left;
+}
+#RecordFormedit label { font-size : 13px ;}
+.form-horizontal img {
+    display: block;
+    margin: 5px 0 0;
+    max-width: 100%;
+}
+</style>
